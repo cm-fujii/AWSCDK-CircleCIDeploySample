@@ -1,0 +1,115 @@
+version: 2.1
+executors:
+  my-executor:
+    # https://circleci.com/docs/2.0/circleci-images/
+    # https://circleci.com/docs/2.0/docker-image-tags.json
+    docker:
+      - image: circleci/python:3.7.2-node
+        environment:
+          PIPENV_VENV_IN_PROJECT: true
+    working_directory: ~/CircleCIDeploySample
+
+commands:
+  restore:
+    steps:
+      - restore_cache:
+          key: CircleCIDeploySample-v1-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
+      - restore_cache:
+          key: CircleCIDeploySample-v1-{{ .Branch }}-{{ checksum "package.json" }}
+
+  save:
+    steps:
+      - save_cache:
+          paths:
+            - ".venv"
+          key: CircleCIDeploySample-v1-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
+      - save_cache:
+          paths:
+            - "node_modules"
+          key: CircleCIDeploySample-v1-{{ .Branch }}-{{ checksum "package.json" }}
+
+jobs:
+  setup:
+    executor: my-executor
+    steps:
+      - checkout
+      - restore
+      - run:
+          name: install
+          command: |
+            sudo pip install pipenv
+            pipenv install
+            npm install
+      - save
+
+  deploy:
+    executor: my-executor
+    parameters:
+      env:
+        type: enum
+        enum: ["prod", "dev"]
+    steps:
+      - checkout
+      - restore
+      - run:
+          name: deploy
+          command: |
+            source .venv/bin/activate
+
+            python --version
+            aws --version
+            npm --version
+            node --version
+            npx cdk --version
+
+            echo << parameters.env >>
+
+            source ./scripts/set_aws.sh << parameters.env >>
+
+            export TARGET_APP_STACK_NAME=AWS-CDK-CircleCI-Deploy-Sample-App-Stack-<< parameters.env >>
+
+            npm run build
+
+            npx cdk deploy --require-approval never ${TARGET_APP_STACK_NAME}
+
+workflows:
+  version: 2.1
+  release-dev-workflow:
+    jobs:
+      - setup:
+          filters:
+            branches:
+              only:
+                - master
+                - /^issues\/\d+$/
+
+      - deploy:
+          env: dev
+          requires:
+            - setup
+          filters:
+            branches:
+              only:
+                - master
+                - /^issues\/\d+$/
+
+  release-prod-workflow:
+    jobs:
+      - setup:
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only:
+                - /^v\d+\.\d+\.\d+$/
+
+      - deploy:
+          env: prod
+          requires:
+            - setup
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only:
+                - /^v\d+\.\d+\.\d+$/
