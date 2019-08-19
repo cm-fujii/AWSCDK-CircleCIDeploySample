@@ -1,0 +1,3 @@
+{
+  "app": "npx ts-node bin/awscdk-circle_ci_deploy_sample.ts"
+}
